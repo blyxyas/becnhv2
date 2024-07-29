@@ -1,4 +1,5 @@
 /target
-.rust-clippy__
-.rust-upstream__
-.setup-completed__
+.*__
+.*__/
+.clippy__/
+.clippy__

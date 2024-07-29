@@ -1,16 +1,26 @@
 use std::{
     env::current_dir,
-    fs,
+    fs::{self, canonicalize},
     io::{stdin, Write},
     path::Path,
+    process::Command,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use git2::{self, build::RepoBuilder, FetchOptions, Repository};
+use git2::{
+    self,
+    build::{CheckoutBuilder, RepoBuilder},
+    FetchOptions, Repository, StatusOptions,
+};
+use regex::Regex;
+use semver::Version;
 
-use crate::{CLIPPY_PATH, RUST_TREE_PATH, SETUP_COMPLETED_LOCK};
+use crate::{
+    checkout_to_ref, copy_dir_all, pause, CLIPPY_PATH, RUSTC_PERF_PATH, RUST_TREE_PATH,
+    SETUP_COMPLETED_LOCK,
+};
 
-use log::debug;
+use log::{debug, trace, warn};
 
 pub(crate) fn setup(yes: bool) -> Result<()> {
     debug!(
@@ -30,15 +40,34 @@ pub(crate) fn setup(yes: bool) -> Result<()> {
     }
 
     debug!("User has responded with Y, proceeding");
+    println!("Cloning repos...");
 
-    Repository::clone(
-        "https://github.com/rust-lang/rust-clippy",
-        Path::new(CLIPPY_PATH),
-    )?;
-    Repository::clone(
-        "https://github.com/rust-lang/rust-clippy",
-        Path::new(RUST_TREE_PATH),
-    )?;
+    if !Path::new(CLIPPY_PATH).exists() {
+        Repository::clone(
+            "https://github.com/rust-lang/rust-clippy",
+            Path::new(CLIPPY_PATH),
+        )?;
+    }
+
+    println!("Clippy cloned");
+
+    if !Path::new(RUST_TREE_PATH).exists() {
+        Repository::clone(
+            "https://github.com/rust-lang/rust",
+            Path::new(RUST_TREE_PATH),
+        )?;
+    }
+
+    println!("Rust (tree) cloned");
+
+    if !Path::new(RUSTC_PERF_PATH).exists() {
+        Repository::clone(
+            "https://github.com/rust-lang/rustc-perf",
+            Path::new(RUSTC_PERF_PATH),
+        )?;
+    }
+
+    println!("Rustc-perf cloned");
 
     // Create `.setup-completed__`
     let mut setup_flag = fs::File::create_new(SETUP_COMPLETED_LOCK)?;
@@ -47,9 +76,267 @@ pub(crate) fn setup(yes: bool) -> Result<()> {
 or you'll have to reinstall the whole tool",
     )?;
 
+    println!("Everything setup");
+
     Ok(())
 }
 
-fn get_pr(number: usize, branch: String) -> Result<()> {
+pub(crate) fn get_pr(
+    number: usize,
+    rust_repo: &Repository,
+    clippy_repo: &Repository,
+) -> Result<()> {
+    // Checkout PR
+    debug!("Checking out PR");
+    trace!("Cloning PR");
+    clippy_repo.find_remote("origin")?.fetch(
+        &[&format!("pull/{number}/head:current_pr")],
+        None,
+        None,
+    )?;
+
+    let branch_name = &format!("pull/{number}/headrefs/heads/current_pr");
+
+    debug!("Remote PR found, changing to that branch");
+    checkout_to_ref(clippy_repo, &branch_name)?;
+
+    debug!("Migrating that PR to tree");
+    migrate_pr_to_tree(/*branch_name,*/ rust_repo /*clippy_repo*/)?;
+
+    pause();
+
+    debug!("Building Rust on sync-from-clippy");
+
+    build_rust()?;
+
+    // debug!("Benchmarking artifact");
+    // bench_artifact()?;
+
+    // Cleanup
+    cleanup(rust_repo, clippy_repo, number)?;
     Ok(())
 }
+
+fn migrate_pr_to_tree(
+    // branch_name: &str,
+    rust_repo: &Repository,
+    // clippy_repo: &Repository,
+) -> Result<()> {
+    // Now, let's get the according version of Rust's
+    debug!("Getting necessary version, so that everything's correct");
+    // We'll do it in a bit of brute force, honestly.
+
+    debug!("Installing toolchain via rustup to get version");
+
+    let version = read_toolchain_version()?;
+
+    debug!("Got version `{version}`, trying to check out on that tag");
+
+    let tag_names = rust_repo.tag_names(Some("1.*.*"))?;
+
+    if tag_names
+        .into_iter()
+        .find(|tag| *tag == Some(&version))
+        .is_none()
+    {
+        let mut current_minor = 0;
+        for ele in tag_names.iter() {
+            if let Some(ele) = ele {
+                let ver = Version::parse(ele)?;
+                if ver.minor > current_minor {
+                    current_minor = ver.minor
+                };
+            };
+        }
+        let version_parse = Version::parse(&version)?;
+        if version_parse.minor - current_minor == 1 {
+            // We're on beta
+            // rust_repo.set_head(rust_repo.find_branch("origin/beta", git2::BranchType::Remote)?.get().name().unwrap())?;
+            debug!("Checking out beta");
+            checkout_to_ref(rust_repo, "remotes/origin/beta")?;
+        }
+    } else {
+        checkout_to_ref(rust_repo, &version)?;
+    }
+
+    debug!("Synching Clippy with Rust@{version}");
+
+    let head_oid = rust_repo.refname_to_id("HEAD")?;
+    let head_commit = rust_repo.find_commit(head_oid)?;
+
+    debug!("Creating branch");
+    let sync_branch = rust_repo.branch("sync-from-clippy", &head_commit, true)?;
+
+    trace!("Checkout tree");
+
+    rust_repo.checkout_tree(head_commit.as_object(), None)?;
+    trace!("Set head to sync branch");
+    rust_repo.set_head(sync_branch.get().name().unwrap())?;
+
+    debug!("Copying directory .clippy__ -> src/tools/clippy");
+
+    let tools_clippy_path = Path::new(RUST_TREE_PATH)
+        .join("src")
+        .join("tools")
+        .join("clippy");
+
+    fs::remove_dir_all(&tools_clippy_path)?;
+    copy_dir_all(CLIPPY_PATH, tools_clippy_path)?;
+
+    // let clippy_subtree = Repository::open(
+    //     canonicalize(Path::new(RUST_TREE_PATH))?
+    //         .join("src")
+    //         .join("tools")
+    //         .join("clippy"),
+    // )?;
+
+    // debug!("Creating clippy-local, and fetching from it");
+
+    // let mut clippy_subtree_remote = clippy_subtree.remote(
+    //     "clippy-local",
+    //     &canonicalize(Path::new(CLIPPY_PATH))?.to_string_lossy(),
+    // )?;
+
+    // clippy_subtree_remote.fetch(&["master"], None, None)?;
+
+    // fs::copy(
+    //     CLIPPY_PATH,
+    //     Path::new(RUST_TREE_PATH).join("src/tools/clippy"),
+    // )?;
+
+    Ok(())
+}
+
+fn read_toolchain_version() -> Result<String> {
+    let rust_toolchain =
+        &fs::read_to_string(Path::new(CLIPPY_PATH).join("rust-toolchain"))?[23..41];
+
+    debug!("Installing {rust_toolchain}");
+    let rustup_toolchain_install = Command::new("rustup")
+        .args(&["install", rust_toolchain])
+        .output()?
+        .stdout;
+
+    let s = match std::str::from_utf8(&rustup_toolchain_install) {
+        Ok(v) => v,
+        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+    };
+
+    let re = Regex::new(r"rustc (\d\.\d+\.\d)-nightly")?;
+
+    return Ok(re.captures(s).unwrap().get(0).unwrap().as_str()[6..12].to_string());
+}
+
+fn cleanup(rust_repo: &Repository, clippy_repo: &Repository, pr: usize) -> Result<()> {
+    // Move both repos to master
+
+    rust_repo.reset(
+        &rust_repo.revparse_ext("HEAD")?.0,
+        git2::ResetType::Hard,
+        Some(CheckoutBuilder::new().remove_untracked(true).force()),
+    )?;
+
+    let rust_head = checkout_to_ref(rust_repo, "master")?;
+    checkout_to_ref(clippy_repo, "master")?;
+
+    warn!("Removing `sync-from-clippy` branch");
+
+    rust_repo
+        .find_branch("sync-from-clippy", git2::BranchType::Local)?
+        .delete()?;
+
+    debug!("Cleaning any untracked files from .rust-upstream__");
+    rust_repo.reset(
+        &rust_head,
+        git2::ResetType::Hard,
+        Some(CheckoutBuilder::new().remove_untracked(true)),
+    )?;
+
+    // warn!("Removing {branch_name} from clippy");
+    // rust_repo
+    //     .find_branch(branch_name, git2::BranchType::Local)?
+    //     .delete()?;
+
+    for status in rust_repo
+        .statuses(Some(
+            StatusOptions::new()
+                .recurse_untracked_dirs(true)
+                .include_untracked(true),
+        ))?
+        .iter()
+    {
+        let path_canon =
+            canonicalize(Path::new(RUST_TREE_PATH).join(status.path().unwrap())).unwrap();
+        trace!("Trying to remove {}", path_canon.to_string_lossy());
+        if fs::remove_dir_all(&path_canon).is_err() {
+            fs::remove_file(path_canon).unwrap();
+        }
+    }
+
+    rust_repo
+        .find_remote("origin")?
+        .fetch(&["master"], None, None)?;
+
+    debug!("Archiving results");
+
+    fs::rename(
+        Path::new(RUSTC_PERF_PATH).join("results.db"),
+        Path::new("archive").join(format!("results-{pr}.db")),
+    )?;
+
+    Ok(())
+}
+
+fn build_rust() -> Result<()> {
+    debug!("Building Rust");
+    Command::new("./x")
+        .args(&[
+            "build",
+            "src/tools/clippy",
+            "--set",
+            "rust.lto=thin",
+            "--set",
+            "build.extended=false",
+            "--set",
+            "rust.jemalloc=true",
+            "--set",
+            "rust.codegen-units=1",
+            "--set",
+            "rust.codegen-units-std=1",
+            "--set",
+            "rust.debug=false",
+            "--set",
+            "rust.optimize=true",
+            "--set",
+            "rust.incremental=false",
+            "--set",
+            "llvm.download-ci-llvm=true", // don't need to build LLVM in this case
+        ])
+        .current_dir(RUST_TREE_PATH)
+        .output()?;
+
+    Ok(())
+}
+
+// fn bench_artifact() -> Result<()> {
+//     debug!("Fetching from rustc-perf");
+
+//     let perf_repo = Repository::open(RUSTC_PERF_PATH)?;
+//     perf_repo
+//         .find_remote("origin")?
+//         .fetch(&["master"], None, None)?;
+
+//     debug!("Building the collector");
+
+//     let _ = Command::new("cargo").args(&["build", "--release"]).current_dir(RUSTC_PERF_PATH).output()?;
+    
+//     debug!("Starting benchmarks");
+
+//     Command::new("./target/release/collector")
+//         .args(&[
+//             "bench_local",
+//             RUST_TREE_PATH
+//         ])
+
+//     Ok(())
+// }
