@@ -10,7 +10,7 @@ use log::{debug, error, info, warn};
 mod ops;
 
 const SETUP_COMPLETED_LOCK: &str = ".setup-completed__";
-const CLIPPY_PATH: &str = ".clippy__";
+const CLIPPY_PATH: &str = ".rust-clippy__";
 const RUST_TREE_PATH: &str = ".rust-upstream__";
 const RUSTC_PERF_PATH: &str = ".rustc-perf__";
 
