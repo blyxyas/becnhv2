@@ -105,7 +105,7 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
 }
 
 pub(crate) fn pause() {
-    use std::io::{stdin, stdout, Read, Stdout, Write};
+    use std::io::{stdin, stdout, Read, Write};
 
     let mut stdout = stdout();
     stdout.write(b"Press Enter to continue...").unwrap();

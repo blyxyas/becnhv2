@@ -1,9 +1,9 @@
 use std::{
     env::current_dir,
     fs::{self, canonicalize},
-    io::{stdin, Write},
+    io::{self, stdin, Write},
     path::Path,
-    process::Command,
+    process::{Child, Command},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -85,6 +85,7 @@ pub(crate) fn get_pr(
     number: usize,
     rust_repo: &Repository,
     clippy_repo: &Repository,
+    master: bool,
 ) -> Result<()> {
     // Checkout PR
     debug!("Checking out PR");
@@ -107,10 +108,10 @@ pub(crate) fn get_pr(
 
     debug!("Building Rust on sync-from-clippy");
 
-    build_rust()?;
+    let mut rust_child = build_rust()?;
 
     // debug!("Benchmarking artifact");
-    // bench_artifact()?;
+    bench_artifact(&mut rust_child, &format!("PR-{number}"))?;
 
     // Cleanup
     cleanup(rust_repo, clippy_repo, number)?;
@@ -287,9 +288,12 @@ fn cleanup(rust_repo: &Repository, clippy_repo: &Repository, pr: usize) -> Resul
     Ok(())
 }
 
-fn build_rust() -> Result<()> {
+fn build_rust() -> Result<Child, io::Error> {
     debug!("Building Rust");
-    Command::new("./x")
+    pause();
+
+    #[cfg(not(debug_assertions))]
+    return Command::new("./x")
         .args(&[
             "build",
             "src/tools/clippy",
@@ -313,30 +317,50 @@ fn build_rust() -> Result<()> {
             "llvm.download-ci-llvm=true", // don't need to build LLVM in this case
         ])
         .current_dir(RUST_TREE_PATH)
-        .output()?;
+        .spawn();
+    
+    #[cfg(debug_assertions)]
+    return Command::new("ls").spawn()
+}
+
+fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
+    debug!("Fetching from rustc-perf");
+
+    let perf_repo = Repository::open(RUSTC_PERF_PATH)?;
+    perf_repo
+        .find_remote("origin")?
+        .fetch(&["master"], None, None)?;
+
+    debug!("Building the collector");
+
+    Command::new("cargo").args(&["build", "--release"]).current_dir(RUSTC_PERF_PATH).spawn()?.wait()?;
+    
+    debug!("Waiting for rust build to wait (this will take a gooooood while)");
+    rust_build_artifact.wait()?;
+
+    debug!("Starting benchmarks");
+
+    let build_path = Path::new(RUST_TREE_PATH)
+        .join("build")
+        .join("host")
+        .join("stage2")
+        .join("bin");
+
+    Command::new("./target/release/collector")
+        .args(&[
+            "bench_local",
+            &build_path.join("rustc").to_string_lossy(),
+            "--profiles",
+            "Clippy",
+            "--clippy",
+            &build_path.join("cargo-clippy").to_string_lossy(),
+            "--id",
+            id
+        ]).spawn();
 
     Ok(())
 }
 
-// fn bench_artifact() -> Result<()> {
-//     debug!("Fetching from rustc-perf");
-
-//     let perf_repo = Repository::open(RUSTC_PERF_PATH)?;
-//     perf_repo
-//         .find_remote("origin")?
-//         .fetch(&["master"], None, None)?;
-
-//     debug!("Building the collector");
-
-//     let _ = Command::new("cargo").args(&["build", "--release"]).current_dir(RUSTC_PERF_PATH).output()?;
-    
-//     debug!("Starting benchmarks");
-
-//     Command::new("./target/release/collector")
-//         .args(&[
-//             "bench_local",
-//             RUST_TREE_PATH
-//         ])
-
-//     Ok(())
+// fn only_master() -> Result<()> {
+//     let rust_repo = Repository::open()
 // }
