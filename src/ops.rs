@@ -1,9 +1,10 @@
 use std::{
     env::current_dir,
     fs::{self, canonicalize},
+    future::join,
     io::{self, stdin, Write},
     path::Path,
-    process::{Child, Command},
+    process::{Child, Command}, thread,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -42,31 +43,42 @@ pub(crate) fn setup(yes: bool) -> Result<()> {
     debug!("User has responded with Y, proceeding");
     println!("Cloning repos...");
 
-    if !Path::new(CLIPPY_PATH).exists() {
-        Repository::clone(
-            "https://github.com/rust-lang/rust-clippy",
-            Path::new(CLIPPY_PATH),
-        )?;
-    }
+    let clippy_handle = thread::spawn(
+        || {
+            if !Path::new(CLIPPY_PATH).exists() {
+                Repository::clone(
+                    "https://github.com/rust-lang/rust-clippy",
+                    Path::new(CLIPPY_PATH),
+                )
+                .expect("Couldn't clone Clippy, check if the path is already there");
+            };
+            println!("Clippy cloned");
+        });
+    let rust_handle = thread::spawn( || {
+            if !Path::new(RUST_TREE_PATH).exists() {
+                Repository::clone(
+                    "https://github.com/rust-lang/rust",
+                    Path::new(RUST_TREE_PATH),
+                )
+                .expect("Couldn't clone Rust, check if the path is already there");
+            }
+            println!("Rust (tree) cloned");
+        }
+    );
 
-    println!("Clippy cloned");
 
-    if !Path::new(RUST_TREE_PATH).exists() {
-        Repository::clone(
-            "https://github.com/rust-lang/rust",
-            Path::new(RUST_TREE_PATH),
-        )?;
-    }
-
-    println!("Rust (tree) cloned");
-
-    if !Path::new(RUSTC_PERF_PATH).exists() {
+    let perf_handle = thread::spawn(|| { if !Path::new(RUSTC_PERF_PATH).exists() {
         Repository::clone(
             "https://github.com/rust-lang/rustc-perf",
             Path::new(RUSTC_PERF_PATH),
-        )?;
-    }
+        ).expect("Couldn't clone Rust, check if the path is already there");
+    }});
 
+    perf_handle.join().unwrap();
+    clippy_handle.join().unwrap();
+    rust_handle.join().unwrap();
+
+    
     println!("Rustc-perf cloned");
 
     // Create `.setup-completed__`
@@ -110,8 +122,14 @@ pub(crate) fn get_pr(
 
     let mut rust_child = build_rust()?;
 
-    // debug!("Benchmarking artifact");
+    debug!("Benchmarking artifact");
     bench_artifact(&mut rust_child, &format!("PR-{number}"))?;
+
+    if master {
+        checkout_to_ref(rust_repo, "master")?;
+        let mut rust_child = build_rust()?;
+        bench_artifact(&mut rust_child, "master")?;
+    }
 
     // Cleanup
     cleanup(rust_repo, clippy_repo, number)?;
@@ -135,6 +153,8 @@ fn migrate_pr_to_tree(
 
     let tag_names = rust_repo.tag_names(Some("1.*.*"))?;
 
+    tag_names.iter().for_each(|meow| debug!("{:?}", meow));
+
     if tag_names
         .into_iter()
         .find(|tag| *tag == Some(&version))
@@ -149,8 +169,9 @@ fn migrate_pr_to_tree(
                 };
             };
         }
+
         let version_parse = Version::parse(&version)?;
-        if version_parse.minor - current_minor == 1 {
+        if version_parse.minor - current_minor == 2 {
             // We're on beta
             // rust_repo.set_head(rust_repo.find_branch("origin/beta", git2::BranchType::Remote)?.get().name().unwrap())?;
             debug!("Checking out beta");
@@ -274,10 +295,6 @@ fn cleanup(rust_repo: &Repository, clippy_repo: &Repository, pr: usize) -> Resul
         }
     }
 
-    rust_repo
-        .find_remote("origin")?
-        .fetch(&["master"], None, None)?;
-
     debug!("Archiving results");
 
     fs::rename(
@@ -297,6 +314,7 @@ fn build_rust() -> Result<Child, io::Error> {
         .args(&[
             "build",
             "src/tools/clippy",
+            "--stage=1",
             "--set",
             "rust.lto=thin",
             "--set",
@@ -318,9 +336,9 @@ fn build_rust() -> Result<Child, io::Error> {
         ])
         .current_dir(RUST_TREE_PATH)
         .spawn();
-    
+
     #[cfg(debug_assertions)]
-    return Command::new("ls").spawn()
+    return Command::new("ls").spawn();
 }
 
 fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
@@ -333,8 +351,12 @@ fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
 
     debug!("Building the collector");
 
-    Command::new("cargo").args(&["build", "--release"]).current_dir(RUSTC_PERF_PATH).spawn()?.wait()?;
-    
+    Command::new("cargo")
+        .args(&["build", "--release"])
+        .current_dir(RUSTC_PERF_PATH)
+        .spawn()?
+        .wait()?;
+
     debug!("Waiting for rust build to wait (this will take a gooooood while)");
     rust_build_artifact.wait()?;
 
@@ -355,12 +377,13 @@ fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
             "--clippy",
             &build_path.join("cargo-clippy").to_string_lossy(),
             "--id",
-            id
-        ]).spawn();
+            id,
+        ])
+        .spawn()?;
 
     Ok(())
 }
 
-// fn only_master() -> Result<()> {
-//     let rust_repo = Repository::open()
-// }
+fn only_master() -> Result<()> {
+    Ok(())
+}

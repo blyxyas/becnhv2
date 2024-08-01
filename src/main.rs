@@ -28,6 +28,8 @@ struct Cli {
 enum Commands {
     PR {
         number: usize,
+        #[arg(long, short, default_value = "false")]
+        master: bool,
     },
     Setup {
         /// Skip asking if proceeding, assume Y is always the answer
@@ -72,8 +74,8 @@ fn main() -> Result<()> {
     let rust_repo = Repository::open(RUST_TREE_PATH)?;
     let clippy_repo = Repository::open(CLIPPY_PATH)?;
 
-    if let Commands::PR { number } = args.command {
-        dbg!(ops::get_pr(number, &rust_repo, &clippy_repo))?;
+    if let Commands::PR { number, master } = args.command {
+        dbg!(ops::get_pr(number, &rust_repo, &clippy_repo, master))?;
     }
 
     Ok(())
