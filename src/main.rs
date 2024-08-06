@@ -8,6 +8,7 @@ use human_panic::setup_panic;
 use log::{debug, error, info, warn};
 
 mod ops;
+mod setup;
 
 const SETUP_COMPLETED_LOCK: &str = ".setup-completed__";
 const CLIPPY_PATH: &str = ".rust-clippy__";

@@ -1,13 +1,14 @@
 use std::{
     env::current_dir,
-    fs::{self, canonicalize},
-    future::join,
-    io::{self, stdin, Write},
+    fs::{self, canonicalize, create_dir},
+    io::{self, stdin, Stdout, Write},
     path::Path,
-    process::{Child, Command}, thread,
+    process::{Child, Command, Stdio},
+    thread,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use datetime::{convenience::Today, ISO};
 use git2::{
     self,
     build::{CheckoutBuilder, RepoBuilder},
@@ -43,43 +44,45 @@ pub(crate) fn setup(yes: bool) -> Result<()> {
     debug!("User has responded with Y, proceeding");
     println!("Cloning repos...");
 
-    let clippy_handle = thread::spawn(
-        || {
-            if !Path::new(CLIPPY_PATH).exists() {
-                Repository::clone(
-                    "https://github.com/rust-lang/rust-clippy",
-                    Path::new(CLIPPY_PATH),
-                )
-                .expect("Couldn't clone Clippy, check if the path is already there");
-            };
-            println!("Clippy cloned");
-        });
-    let rust_handle = thread::spawn( || {
-            if !Path::new(RUST_TREE_PATH).exists() {
-                Repository::clone(
-                    "https://github.com/rust-lang/rust",
-                    Path::new(RUST_TREE_PATH),
-                )
-                .expect("Couldn't clone Rust, check if the path is already there");
-            }
-            println!("Rust (tree) cloned");
+    let clippy_handle = thread::spawn(|| {
+        if !Path::new(CLIPPY_PATH).exists() {
+            Repository::clone(
+                "https://github.com/rust-lang/rust-clippy",
+                Path::new(CLIPPY_PATH),
+            )
+            .expect("Couldn't clone Clippy, check if the path is already there");
+        };
+        println!("Clippy cloned");
+    });
+    let rust_handle = thread::spawn(|| {
+        if !Path::new(RUST_TREE_PATH).exists() {
+            Repository::clone(
+                "https://github.com/rust-lang/rust",
+                Path::new(RUST_TREE_PATH),
+            )
+            .expect("Couldn't clone Rust, check if the path is already there");
         }
-    );
+        println!("Rust (tree) cloned");
+    });
 
+    let perf_handle = thread::spawn(|| {
+        if !Path::new(RUSTC_PERF_PATH).exists() {
+            Repository::clone(
+                "https://github.com/rust-lang/rustc-perf",
+                Path::new(RUSTC_PERF_PATH),
+            )
+            .expect("Couldn't clone Rust, check if the path is already there");
+        }
 
-    let perf_handle = thread::spawn(|| { if !Path::new(RUSTC_PERF_PATH).exists() {
-        Repository::clone(
-            "https://github.com/rust-lang/rustc-perf",
-            Path::new(RUSTC_PERF_PATH),
-        ).expect("Couldn't clone Rust, check if the path is already there");
-    }});
+    });
 
     perf_handle.join().unwrap();
     clippy_handle.join().unwrap();
     rust_handle.join().unwrap();
 
-    
     println!("Rustc-perf cloned");
+
+    create_dir("archive")?;
 
     // Create `.setup-completed__`
     let mut setup_flag = fs::File::create_new(SETUP_COMPLETED_LOCK)?;
@@ -122,13 +125,16 @@ pub(crate) fn get_pr(
 
     let mut rust_child = build_rust()?;
 
-    debug!("Benchmarking artifact");
+    debug!("Benchmarking artifact as PR-{number}");
     bench_artifact(&mut rust_child, &format!("PR-{number}"))?;
 
     if master {
+        debug!("");
         checkout_to_ref(rust_repo, "master")?;
         let mut rust_child = build_rust()?;
-        bench_artifact(&mut rust_child, "master")?;
+        let today = datetime::LocalDate::today();
+        warn!("Benching master as `master-{}`", today.iso());
+        bench_artifact(&mut rust_child, &format!("master-{}", today.iso()))?;
     }
 
     // Cleanup
@@ -147,7 +153,8 @@ fn migrate_pr_to_tree(
 
     debug!("Installing toolchain via rustup to get version");
 
-    let version = read_toolchain_version()?;
+    let mut version = Version::parse(&read_toolchain_version()?)?;
+    version.minor -= 1;
 
     debug!("Got version `{version}`, trying to check out on that tag");
 
@@ -157,7 +164,7 @@ fn migrate_pr_to_tree(
 
     if tag_names
         .into_iter()
-        .find(|tag| *tag == Some(&version))
+        .find(|tag| *tag == Some(&version.to_string()))
         .is_none()
     {
         let mut current_minor = 0;
@@ -170,15 +177,17 @@ fn migrate_pr_to_tree(
             };
         }
 
-        let version_parse = Version::parse(&version)?;
-        if version_parse.minor - current_minor == 2 {
-            // We're on beta
-            // rust_repo.set_head(rust_repo.find_branch("origin/beta", git2::BranchType::Remote)?.get().name().unwrap())?;
+        dbg!(&version, &current_minor);
+        // We're on beta
+        // rust_repo.set_head(rust_repo.find_branch("origin/beta", git2::BranchType::Remote)?.get().name().unwrap())?;
+        // debug!("Checking out bet");
+        // checkout_to_ref(rust_repo, "remotes/origin/stable")?;
+        if version.minor - current_minor == 1 {
             debug!("Checking out beta");
             checkout_to_ref(rust_repo, "remotes/origin/beta")?;
         }
     } else {
-        checkout_to_ref(rust_repo, &version)?;
+        checkout_to_ref(rust_repo, &version.to_string())?;
     }
 
     debug!("Synching Clippy with Rust@{version}");
