@@ -1,25 +1,21 @@
 use std::{
-    env::current_dir,
-    fs::{self, canonicalize, create_dir},
-    io::{self, stdin, Stdout, Write},
+    fs::{self, canonicalize},
+    io::{self},
     path::Path,
-    process::{Child, Command, Stdio},
-    thread,
+    process::{Child, Command},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::Result;
 use datetime::{convenience::Today, ISO};
 use git2::{
     self,
-    build::{CheckoutBuilder, RepoBuilder},
-    FetchOptions, Repository, StatusOptions,
+    build::CheckoutBuilder, Repository, StatusOptions,
 };
 use regex::Regex;
 use semver::Version;
 
 use crate::{
     checkout_to_ref, copy_dir_all, pause, CLIPPY_PATH, RUSTC_PERF_PATH, RUST_TREE_PATH,
-    SETUP_COMPLETED_LOCK,
 };
 
 use log::{debug, trace, warn};
@@ -42,7 +38,7 @@ pub(crate) fn get_pr(
     let branch_name = &format!("pull/{number}/headrefs/heads/current_pr");
 
     debug!("Remote PR found, changing to that branch");
-    checkout_to_ref(clippy_repo, &branch_name)?;
+    checkout_to_ref(clippy_repo, branch_name)?;
 
     debug!("Migrating that PR to tree");
     migrate_pr_to_tree(/*branch_name,*/ rust_repo /*clippy_repo*/)?;
@@ -90,18 +86,14 @@ fn migrate_pr_to_tree(
 
     tag_names.iter().for_each(|meow| debug!("{:?}", meow));
 
-    if tag_names
-        .into_iter()
-        .find(|tag| *tag == Some(&version.to_string()))
-        .is_none()
+    if !tag_names
+        .into_iter().any(|tag| tag == Some(&version.to_string()))
     {
         let mut current_minor = 0;
-        for ele in tag_names.iter() {
-            if let Some(ele) = ele {
-                let ver = Version::parse(ele)?;
-                if ver.minor > current_minor {
-                    current_minor = ver.minor
-                };
+        for ele in tag_names.iter().flatten() {
+            let ver = Version::parse(ele)?;
+            if ver.minor > current_minor {
+                current_minor = ver.minor
             };
         }
 
@@ -172,7 +164,7 @@ fn read_toolchain_version() -> Result<String> {
 
     debug!("Installing {rust_toolchain}");
     let rustup_toolchain_install = Command::new("rustup")
-        .args(&["install", rust_toolchain])
+        .args(["install", rust_toolchain])
         .output()?
         .stdout;
 
@@ -289,7 +281,7 @@ fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
     debug!("Building the collector");
 
     Command::new("cargo")
-        .args(&["build", "--release"])
+        .args(["build", "--release"])
         .current_dir(RUSTC_PERF_PATH)
         .spawn()?
         .wait()?;
@@ -306,7 +298,7 @@ fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
         .join("bin");
 
     Command::new("./target/release/collector")
-        .args(&[
+        .args([
             "bench_local",
             &build_path.join("rustc").to_string_lossy(),
             "--profiles",
@@ -318,9 +310,5 @@ fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
         ])
         .spawn()?;
 
-    Ok(())
-}
-
-fn only_master() -> Result<()> {
     Ok(())
 }

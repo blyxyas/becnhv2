@@ -1,9 +1,9 @@
 #![feature(let_chains)]
-use std::{fs, io::Write, path::Path};
+use std::{fs, path::Path};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use git2::{build::CheckoutBuilder, ErrorCode, Object, Reference, Repository};
+use git2::{build::CheckoutBuilder, Object, Repository};
 use human_panic::setup_panic;
 use log::{debug, error, info, warn};
 
