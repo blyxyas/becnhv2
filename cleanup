@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cd .rust-upstream__
+git restore .
+git clean -f -d
+git switch master
+git branch -D sync-from-clippy

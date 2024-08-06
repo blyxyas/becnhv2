@@ -7,7 +7,7 @@ use git2::{build::CheckoutBuilder, ErrorCode, Object, Reference, Repository};
 use human_panic::setup_panic;
 use log::{debug, error, info, warn};
 
-mod ops;
+mod get_prs;
 mod setup;
 
 const SETUP_COMPLETED_LOCK: &str = ".setup-completed__";
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
     if let Commands::Setup { yes } = args.command {
         warn!("Command is setup, creating and pulling rust (upstream) and rust-clippy");
 
-        match ops::setup(yes) {
+        match setup::setup(yes) {
             Ok(_) => {
                 debug!("Setup succesful");
                 println!("Setup done, now you can benchmark any Clippy PR!");
@@ -76,7 +76,7 @@ fn main() -> Result<()> {
     let clippy_repo = Repository::open(CLIPPY_PATH)?;
 
     if let Commands::PR { number, master } = args.command {
-        dbg!(ops::get_pr(number, &rust_repo, &clippy_repo, master))?;
+        dbg!(get_prs::get_pr(number, &rust_repo, &clippy_repo, master))?;
     }
 
     Ok(())
@@ -111,7 +111,7 @@ pub(crate) fn pause() {
     use std::io::{stdin, stdout, Read, Write};
 
     let mut stdout = stdout();
-    stdout.write(b"Press Enter to continue...").unwrap();
+    stdout.write_all(b"Press Enter to continue...").unwrap();
     stdout.flush().unwrap();
-    stdin().read(&mut [0]).unwrap();
+    stdin().read_exact(&mut [0]).unwrap();
 }

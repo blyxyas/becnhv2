@@ -1,0 +1,238 @@
+Building tool clippy-driver (stage1 -> stage2, x86_64-unknown-linux-gnu)
+   Compiling proc-macro2 v1.0.86
+   Compiling unicode-ident v1.0.12
+   Compiling serde v1.0.203
+   Compiling equivalent v1.0.1
+   Compiling hashbrown v0.14.5
+   Compiling tinyvec_macros v0.1.1
+   Compiling memchr v2.5.0
+   Compiling winnow v0.5.40
+   Compiling thiserror v1.0.61
+   Compiling camino v1.1.7
+   Compiling serde_json v1.0.117
+   Compiling rustc_apfloat v0.2.0+llvm-462a31f5a5ab
+   Compiling tinyvec v1.6.0
+   Compiling semver v1.0.23
+   Compiling itoa v1.0.11
+   Compiling unicode-bidi v0.3.15
+   Compiling minimal-lexical v0.2.1
+   Compiling either v1.12.0
+   Compiling bitflags v1.3.2
+   Compiling ryu v1.0.18
+   Compiling percent-encoding v2.3.1
+   Compiling rustc-semver v1.1.0
+   Compiling smallvec v1.13.2
+   Compiling libc v0.2.155
+   Compiling itertools v0.12.1
+   Compiling form_urlencoded v1.2.1
+   Compiling arrayvec v0.7.4
+   Compiling quote v1.0.36
+   Compiling nom v7.1.3
+   Compiling rustc_tools_util v0.3.0
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v0.2.4
+   Compiling syn v2.0.67
+   Compiling indexmap v2.2.6
+   Compiling clippy v0.1.82 (/home/meow/git/becnhv2/.rust-upstream__/src/tools/clippy)
+   Compiling regex-syntax v0.8.4
+   Compiling unicode-script v0.5.6
+   Compiling unicode-normalization v0.1.23
+   Compiling anstyle-query v1.1.0
+   Compiling is_terminal_polyfill v1.70.0
+   Compiling quine-mc_cluskey v0.2.4
+   Compiling anstyle v1.0.7
+   Compiling colorchoice v1.0.1
+   Compiling idna v0.5.0
+   Compiling termize v0.1.1
+   Compiling anstream v0.6.14
+   Compiling url v2.5.2
+   Compiling serde_derive v1.0.203
+   Compiling thiserror-impl v1.0.61
+   Compiling color-print-proc-macro v0.3.6
+   Compiling declare_clippy_lint v0.1.82 (/home/meow/git/becnhv2/.rust-upstream__/src/tools/clippy/declare_clippy_lint)
+   Compiling color-print v0.3.6
+   Compiling toml_datetime v0.6.6
+   Compiling serde_spanned v0.6.6
+   Compiling cargo-platform v0.1.8
+   Compiling toml_edit v0.19.15
+   Compiling cargo_metadata v0.18.1
+   Compiling toml v0.7.8
+   Compiling clippy_config v0.1.82 (/home/meow/git/becnhv2/.rust-upstream__/src/tools/clippy/clippy_config)
+   Compiling clippy_utils v0.1.82 (/home/meow/git/becnhv2/.rust-upstream__/src/tools/clippy/clippy_utils)
+   Compiling clippy_lints v0.1.82 (/home/meow/git/becnhv2/.rust-upstream__/src/tools/clippy/clippy_lints)
+error[E0432]: unresolved import `rustc_trait_selection::error_reporting::InferCtxtErrorExt`
+  --> src/tools/clippy/clippy_lints/src/eta_reduction.rs:18:5
+   |
+18 | use rustc_trait_selection::error_reporting::InferCtxtErrorExt as _;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `InferCtxtErrorExt` in `error_reporting`
+
+error[E0432]: unresolved import `rustc_trait_selection::error_reporting::InferCtxtErrorExt`
+  --> src/tools/clippy/clippy_lints/src/functions/must_use.rs:19:5
+   |
+19 | use rustc_trait_selection::error_reporting::InferCtxtErrorExt;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `InferCtxtErrorExt` in `error_reporting`
+
+error[E0432]: unresolved import `rustc_trait_selection::error_reporting::InferCtxtErrorExt`
+  --> src/tools/clippy/clippy_lints/src/future_not_send.rs:12:5
+   |
+12 | use rustc_trait_selection::error_reporting::InferCtxtErrorExt;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `InferCtxtErrorExt` in `error_reporting`
+
+error[E0432]: unresolved import `rustc_trait_selection::error_reporting::InferCtxtErrorExt`
+  --> src/tools/clippy/clippy_lints/src/no_effect.rs:18:5
+   |
+18 | use rustc_trait_selection::error_reporting::InferCtxtErrorExt;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `InferCtxtErrorExt` in `error_reporting`
+
+error[E0425]: cannot find function `walk_pat` in this scope
+   --> src/tools/clippy/clippy_lints/src/unnested_or_patterns.rs:126:13
+    |
+126 |             walk_pat(self, pat);
+    |             ^^^^^^^^
+    |
+help: try calling `walk_pat` as a method
+    |
+126 |             self.walk_pat(pat);
+    |             ~~~~~~~~~~~~~~~~~~
+help: consider importing one of these functions
+    |
+3   + use crate::unnested_or_patterns::ast::visit::walk_pat;
+    |
+3   + use rustc_ast::visit::walk_pat;
+    |
+3   + use rustc_hir::intravisit::walk_pat;
+    |
+3   + use rustc_middle::thir::visit::walk_pat;
+    |
+
+error[E0425]: cannot find function `walk_pat` in this scope
+   --> src/tools/clippy/clippy_lints/src/unnested_or_patterns.rs:143:13
+    |
+143 |             walk_pat(self, pat);
+    |             ^^^^^^^^
+    |
+help: try calling `walk_pat` as a method
+    |
+143 |             self.walk_pat(pat);
+    |             ~~~~~~~~~~~~~~~~~~
+help: consider importing one of these functions
+    |
+3   + use crate::unnested_or_patterns::ast::visit::walk_pat;
+    |
+3   + use rustc_ast::visit::walk_pat;
+    |
+3   + use rustc_hir::intravisit::walk_pat;
+    |
+3   + use rustc_middle::thir::visit::walk_pat;
+    |
+
+error[E0425]: cannot find function `walk_pat` in this scope
+   --> src/tools/clippy/clippy_lints/src/unnested_or_patterns.rs:165:13
+    |
+165 |             walk_pat(self, p);
+    |             ^^^^^^^^
+    |
+help: try calling `walk_pat` as a method
+    |
+165 |             self.walk_pat(p);
+    |             ~~~~~~~~~~~~~~~~
+help: consider importing one of these functions
+    |
+3   + use crate::unnested_or_patterns::ast::visit::walk_pat;
+    |
+3   + use rustc_ast::visit::walk_pat;
+    |
+3   + use rustc_hir::intravisit::walk_pat;
+    |
+3   + use rustc_middle::thir::visit::walk_pat;
+    |
+
+error[E0425]: cannot find function `walk_pat` in this scope
+   --> src/tools/clippy/clippy_lints/src/unnested_or_patterns.rs:194:17
+    |
+194 |                 walk_pat(self, p);
+    |                 ^^^^^^^^
+    |
+help: try calling `walk_pat` as a method
+    |
+194 |                 self.walk_pat(p);
+    |                 ~~~~~~~~~~~~~~~~
+help: consider importing one of these functions
+    |
+3   + use crate::unnested_or_patterns::ast::visit::walk_pat;
+    |
+3   + use rustc_ast::visit::walk_pat;
+    |
+3   + use rustc_hir::intravisit::walk_pat;
+    |
+3   + use rustc_middle::thir::visit::walk_pat;
+    |
+
+error[E0599]: no method named `type_implements_fn_trait` found for struct `TypeErrCtxt<'_, '_>` in the current scope
+   --> src/tools/clippy/clippy_lints/src/eta_reduction.rs:181:78
+    |
+181 | ...                   match cx.tcx.infer_ctxt().build().err_ctxt().type_implements_fn_trait(
+    |                             ---------------------------------------^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `InferCtxtExt` which provides `type_implements_fn_trait` is implemented but not in scope; perhaps you want to import it
+    |
+1   + use crate::rustc_trait_selection::error_reporting::traits::InferCtxtExt;
+    |
+help: there is a method `type_implements_trait` with a similar name
+    |
+181 |                                 match cx.tcx.infer_ctxt().build().err_ctxt().type_implements_trait(
+    |                                                                              ~~~~~~~~~~~~~~~~~~~~~
+
+error[E0599]: no method named `maybe_note_obligation_cause_for_async_await` found for struct `TypeErrCtxt<'_, '_>` in the current scope
+    --> src/tools/clippy/clippy_lints/src/future_not_send.rs:92:38
+     |
+90   | / ...                   infcx
+91   | | ...                       .err_ctxt()
+92   | | ...                       .maybe_note_obligation_cause_for_async_await(db, &obligation);
+     | |___________________________-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+    ::: /home/meow/git/becnhv2/.rust-upstream__/compiler/rustc_trait_selection/src/error_reporting/traits/suggestions.rs:2246:8
+     |
+2246 |       fn maybe_note_obligation_cause_for_async_await<G: EmissionGuarantee>(
+     |          ------------------------------------------- the method is available for `TypeErrCtxt<'_, '_>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: there is a method `note_obligation_cause_for_async_await` with a similar name, but with different arguments
+    --> /home/meow/git/becnhv2/.rust-upstream__/compiler/rustc_trait_selection/src/error_reporting/traits/suggestions.rs:2480:5
+     |
+2480 | /     fn note_obligation_cause_for_async_await<G: EmissionGuarantee>(
+2481 | |         &self,
+2482 | |         err: &mut Diag<'_, G>,
+2483 | |         interior_or_upvar_span: CoroutineInteriorOrUpvar,
+...    |
+2712 | |         );
+2713 | |     }
+     | |_____^
+help: trait `TypeErrCtxtExt` which provides `maybe_note_obligation_cause_for_async_await` is implemented but not in scope; perhaps you want to import it
+     |
+1    + use crate::rustc_trait_selection::error_reporting::traits::suggestions::TypeErrCtxtExt;
+     |
+
+error[E0277]: `&UnordMap<LocalDefId, std::vec::Vec<rustc_span::def_id::DefId>>` is not an iterator
+  --> src/tools/clippy/clippy_lints/src/inherent_impl.rs:60:32
+   |
+60 |         for (&id, impl_ids) in &impls.inherent_impls {
+   |                                ^^^^^^^^^^^^^^^^^^^^^ `&UnordMap<LocalDefId, std::vec::Vec<rustc_span::def_id::DefId>>` is not an iterator
+   |
+   = help: the trait `std::iter::Iterator` is not implemented for `&UnordMap<LocalDefId, std::vec::Vec<rustc_span::def_id::DefId>>`, which is required by `&UnordMap<LocalDefId, std::vec::Vec<rustc_span::def_id::DefId>>: IntoIterator`
+   = note: required for `&UnordMap<LocalDefId, std::vec::Vec<rustc_span::def_id::DefId>>` to implement `IntoIterator`
+
+Some errors have detailed explanations: E0277, E0425, E0432, E0599.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `clippy_lints` (lib) due to 11 previous errors
+Build completed unsuccessfully in 0:10:53
+[2024-07-31T23:10:44Z DEBUG becnhv2::ops] Starting benchmarks
+[src/main.rs:78:9] ops::get_pr(number, &rust_repo, &clippy_repo, master) = Err(
+    Os {
+        code: 2,
+        kind: NotFound,
+        message: "No such file or directory",
+    },
+)
+Error: No such file or directory (os error 2)
