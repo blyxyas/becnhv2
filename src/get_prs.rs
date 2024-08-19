@@ -7,16 +7,12 @@ use std::{
 
 use anyhow::Result;
 use datetime::{convenience::Today, ISO};
-use git2::{
-    self,
-    build::CheckoutBuilder, Repository, StatusOptions,
-};
+use git2::{self, build::CheckoutBuilder, Repository, StatusOptions};
+use nightly2version::{RustVersion, ToVersion};
 use regex::Regex;
 use semver::Version;
 
-use crate::{
-    checkout_to_ref, copy_dir_all, pause, CLIPPY_PATH, RUSTC_PERF_PATH, RUST_TREE_PATH,
-};
+use crate::{checkout_to_ref, copy_dir_all, pause, CLIPPY_PATH, RUSTC_PERF_PATH, RUST_TREE_PATH};
 
 use log::{debug, trace, warn};
 
@@ -77,7 +73,7 @@ fn migrate_pr_to_tree(
 
     debug!("Installing toolchain via rustup to get version");
 
-    let mut version = Version::parse(&read_toolchain_version()?)?;
+    let mut version = read_toolchain_version()?;
     version.minor -= 1;
 
     debug!("Got version `{version}`, trying to check out on that tag");
@@ -87,7 +83,8 @@ fn migrate_pr_to_tree(
     tag_names.iter().for_each(|meow| debug!("{:?}", meow));
 
     if !tag_names
-        .into_iter().any(|tag| tag == Some(&version.to_string()))
+        .into_iter()
+        .any(|tag| tag == Some(&version.to_string()))
     {
         let mut current_minor = 0;
         for ele in tag_names.iter().flatten() {
@@ -102,7 +99,7 @@ fn migrate_pr_to_tree(
         // rust_repo.set_head(rust_repo.find_branch("origin/beta", git2::BranchType::Remote)?.get().name().unwrap())?;
         // debug!("Checking out bet");
         // checkout_to_ref(rust_repo, "remotes/origin/stable")?;
-        if version.minor - current_minor == 1 {
+        if version.minor - (current_minor as u16) == 1 {
             debug!("Checking out beta");
             checkout_to_ref(rust_repo, "remotes/origin/beta")?;
         }
@@ -158,7 +155,7 @@ fn migrate_pr_to_tree(
     Ok(())
 }
 
-fn read_toolchain_version() -> Result<String> {
+fn read_toolchain_version() -> Result<RustVersion> {
     let rust_toolchain =
         &fs::read_to_string(Path::new(CLIPPY_PATH).join("rust-toolchain"))?[23..41];
 
@@ -175,7 +172,14 @@ fn read_toolchain_version() -> Result<String> {
 
     let re = Regex::new(r"rustc (\d\.\d+\.\d)-nightly")?;
 
-    return Ok(re.captures(s).unwrap().get(0).unwrap().as_str()[6..12].to_string());
+    return Ok(RustVersion::new(
+        re.captures(s)
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .as_str()
+            .to_version(),
+    ));
 }
 
 fn cleanup(rust_repo: &Repository, clippy_repo: &Repository, pr: usize) -> Result<()> {

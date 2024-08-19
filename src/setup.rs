@@ -2,16 +2,20 @@ use std::{
     env::current_dir,
     fs::{self, create_dir},
     io::{stdin, Write},
+    mem::ManuallyDrop,
     path::Path,
+    process::{Command, Output},
     thread,
 };
 
 use anyhow::{bail, Result};
-use git2::Repository;
-use log::debug;
+use git2::{Oid, Repository, Signature};
+use log::{debug, trace};
+use regex::Regex;
 
 use crate::{CLIPPY_PATH, RUSTC_PERF_PATH, RUST_TREE_PATH, SETUP_COMPLETED_LOCK};
 
+/// Makes all necessary changes
 pub(crate) fn setup(yes: bool) -> Result<()> {
     debug!(
         "Asking user if we should clone Rust and Clippy into dir {:#?}",
@@ -82,3 +86,48 @@ or you'll have to reinstall the whole tool",
 
     Ok(())
 }
+
+// fn create_notes(repo: &Repository) -> Result<()> {
+//     // I couldn't get this to work on git2, we're using the git CLI.
+//     debug!("Running `git log -L2,2:rust-toolchain --no-color`, and making a string from output");
+
+//     let log_output = Command::new("git")
+//         .arg("log")
+//         .arg("-L")
+//         .arg("2,2:rust-toolchain")
+//         .arg("--no-color")
+//         .current_dir(CLIPPY_PATH)
+//         .output()
+//         .expect("hi");
+
+//     let s = String::from_utf8(log_output.stdout)?;
+
+//     let days_re = Regex::new(r#"\+channel = "nightly-(\d+-\d+-\d+)""#).unwrap();
+//     let commits_re = Regex::new(r#"commit .{40}\n"#).unwrap();
+
+//     let mut days_vec = Vec::with_capacity(100);
+//     let mut commits_vec = Vec::with_capacity(100);
+
+//     for cap in days_re.find_iter(s.as_str()) {
+//         days_vec.push(&cap.as_str()[12..30]);
+//     }
+
+//     for cap in commits_re.find_iter(s.as_str()) {
+//         commits_vec.push(&cap.as_str()[7..46]);
+//     }
+
+//     let zipped = days_vec.iter().zip(commits_vec);
+//     debug!("Creating the git notes themselves");
+//     for (nightly, commit) in zipped {
+//         repo.note(
+//             &Signature::now("Becnhv2", "blyxyas@gmail.com")?,
+//             &Signature::now("Benchv2", "blyxyas@gmail.com")?,
+//             None,
+//             Oid::from_str(commit).unwrap(),
+//             &format!("<Becnhv2> {}, ", nightly),
+//             false,
+//         )?;
+//     }
+
+//     Ok(())
+// }

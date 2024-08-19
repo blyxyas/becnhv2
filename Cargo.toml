@@ -11,6 +11,7 @@ env_logger = "0.11.4"
 git2 = "0.19.0"
 human-panic = "2.0.1"
 log = "0.4.22"
+nightly2version = {git = "https://github.com/blyxyas/nightly2version"}
 regex = "1.10.5"
 semver = "1.0.23"
 
