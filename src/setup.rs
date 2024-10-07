@@ -46,16 +46,16 @@ pub(crate) fn setup(yes: bool) -> Result<()> {
         };
         println!("Clippy cloned");
     });
-    let rust_handle = thread::spawn(|| {
-        if !Path::new(RUST_TREE_PATH).exists() {
-            Repository::clone(
-                "https://github.com/rust-lang/rust",
-                Path::new(RUST_TREE_PATH),
-            )
-            .expect("Couldn't clone Rust, check if the path is already there");
-        }
-        println!("Rust (tree) cloned");
-    });
+    // let rust_handle = thread::spawn(|| {
+    //     if !Path::new(RUST_TREE_PATH).exists() {
+    //         Repository::clone(
+    //             "https://github.com/rust-lang/rust",
+    //             Path::new(RUST_TREE_PATH),
+    //         )
+    //         .expect("Couldn't clone Rust, check if the path is already there");
+    //     }
+    //     println!("Rust (tree) cloned");
+    // });
 
     let perf_handle = thread::spawn(|| {
         if !Path::new(RUSTC_PERF_PATH).exists() {
@@ -69,7 +69,7 @@ pub(crate) fn setup(yes: bool) -> Result<()> {
 
     perf_handle.join().unwrap();
     clippy_handle.join().unwrap();
-    rust_handle.join().unwrap();
+    // rust_handle.join().unwrap();
 
     println!("Rustc-perf cloned");
 

@@ -12,7 +12,7 @@ mod setup;
 
 const SETUP_COMPLETED_LOCK: &str = ".setup-completed__";
 const CLIPPY_PATH: &str = ".rust-clippy__";
-const RUST_TREE_PATH: &str = ".rust-upstream__";
+const RUST_TREE_PATH: &str = "rustc-nightly-src";
 const RUSTC_PERF_PATH: &str = ".rustc-perf__";
 
 #[derive(Parser, Debug)]
@@ -72,11 +72,10 @@ fn main() -> Result<()> {
         anyhow::bail!("Setup lock not found, you should run `becnhv2 setup`");
     };
 
-    let rust_repo = Repository::open(RUST_TREE_PATH)?;
     let clippy_repo = Repository::open(CLIPPY_PATH)?;
 
     if let Commands::PR { number, master } = args.command {
-        dbg!(get_prs::get_pr(number, &rust_repo, &clippy_repo, master))?;
+        dbg!(get_prs::get_pr(number, &clippy_repo, master))?;
     }
 
     Ok(())

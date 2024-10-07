@@ -1,27 +1,24 @@
 use std::{
-    fs::{self, canonicalize},
-    io::{self},
+    fs::{self, canonicalize, File},
+    io::{self, Read, Write},
     path::Path,
     process::{Child, Command},
 };
 
 use anyhow::Result;
+use curl::easy::Easy;
 use datetime::{convenience::Today, ISO};
 use git2::{self, build::CheckoutBuilder, Repository, StatusOptions};
 use nightly2version::{RustVersion, ToVersion};
 use regex::Regex;
 use semver::Version;
+use tar::Archive;
 
 use crate::{checkout_to_ref, copy_dir_all, pause, CLIPPY_PATH, RUSTC_PERF_PATH, RUST_TREE_PATH};
 
 use log::{debug, trace, warn};
 
-pub(crate) fn get_pr(
-    number: usize,
-    rust_repo: &Repository,
-    clippy_repo: &Repository,
-    master: bool,
-) -> Result<()> {
+pub(crate) fn get_pr(number: usize, clippy_repo: &Repository, master: bool) -> Result<()> {
     // Checkout PR
     debug!("Checking out PR");
     trace!("Cloning PR");
@@ -37,7 +34,63 @@ pub(crate) fn get_pr(
     checkout_to_ref(clippy_repo, branch_name)?;
 
     debug!("Migrating that PR to tree");
-    migrate_pr_to_tree(/*branch_name,*/ rust_repo /*clippy_repo*/)?;
+    let mut easy = Easy::new();
+
+    let rust_toolchain =
+        &fs::read_to_string(Path::new(CLIPPY_PATH).join("rust-toolchain"))?[31..41];
+
+    debug!("{}", &format!("{rust_toolchain}"));
+
+    let mut dst = Vec::new();
+    let download_path = format!("{RUST_TREE_PATH}.tar.xz");
+
+    if !Path::new(&format!("{RUST_TREE_PATH}.tar.xz")).exists() {
+        easy.url(&format!(
+            "https://static.rust-lang.org/dist/{rust_toolchain}/rustc-nightly-src.tar.xz"
+        ))?;
+
+        {
+            let mut transfer = easy.transfer();
+            transfer
+                .write_function(|data| {
+                    dst.extend_from_slice(data);
+                    Ok(data.len())
+                })
+                .unwrap();
+            transfer.perform().unwrap();
+        }
+        let mut file = File::create(download_path.clone())?;
+        dbg!(dst.len());
+        file.write_all(dst.as_slice())?;
+    }
+
+    pause();
+
+    let mut buf: Vec<u8> = Vec::new();
+
+    debug!("Decompressing archive");
+    Command::new("tar").arg("-xf").arg(download_path).status()?;
+
+    pause();
+
+    // Build Rustc and cargo
+    debug!("Building rustc");
+    Command::new("./x.py").arg("build").arg("rustc").status()?;
+    debug!("Building cargo");
+    Command::new("./x.py").arg("build").arg("cargo").status()?;
+
+    // Replace Clippy with PR Clippy
+
+    let clippy_upstream_path = Path::new(RUST_TREE_PATH)
+        .join("src")
+        .join("tools")
+        .join("clippy");
+
+        if clippy_upstream_path.exists() {
+            fs::remove_dir_all(&clippy_upstream_path)?;
+        }
+
+    fs::rename(CLIPPY_PATH, clippy_upstream_path)?;
 
     pause();
 
@@ -48,23 +101,22 @@ pub(crate) fn get_pr(
     debug!("Benchmarking artifact as PR-{number}");
     bench_artifact(&mut rust_child, &format!("PR-{number}"))?;
 
-    if master {
-        debug!("");
-        checkout_to_ref(rust_repo, "master")?;
-        let mut rust_child = build_rust()?;
-        let today = datetime::LocalDate::today();
-        warn!("Benching master as `master-{}`", today.iso());
-        bench_artifact(&mut rust_child, &format!("master-{}", today.iso()))?;
-    }
+    // if master {
+    //     debug!("");
+    //     checkout_to_ref(rust_repo, "master")?;
+    //     let mut rust_child = build_rust()?;
+    //     let today = datetime::LocalDate::today();
+    //     warn!("Benching master as `master-{}`", today.iso());
+    //     bench_artifact(&mut rust_child, &format!("master-{}", today.iso()))?;
+    // }
 
     // Cleanup
-    cleanup(rust_repo, clippy_repo, number)?;
-    Ok(())
+    // cleanup(rust_repo, clippy_repo, number)?;
+    Ok(()) // APPLY A PATCH< BENCHMARK< RESTORE FILES IN PR< BENCHMARK AGAIN
 }
 
-fn migrate_pr_to_tree(
-    // branch_name: &str,
-    rust_repo: &Repository,
+fn migrate_pr_to_tree(// branch_name: &str,
+    // rust_repo: &Repository,
     // clippy_repo: &Repository,
 ) -> Result<()> {
     // Now, let's get the according version of Rust's
@@ -75,51 +127,38 @@ fn migrate_pr_to_tree(
 
     let mut version = read_toolchain_version()?;
     version.minor -= 1;
-
-    debug!("Got version `{version}`, trying to check out on that tag");
-
-    let tag_names = rust_repo.tag_names(Some("1.*.*"))?;
-
-    tag_names.iter().for_each(|meow| debug!("{:?}", meow));
-
-    if !tag_names
-        .into_iter()
-        .any(|tag| tag == Some(&version.to_string()))
-    {
-        let mut current_minor = 0;
-        for ele in tag_names.iter().flatten() {
-            let ver = Version::parse(ele)?;
-            if ver.minor > current_minor {
-                current_minor = ver.minor
-            };
-        }
-
-        dbg!(&version, &current_minor);
-        // We're on beta
-        // rust_repo.set_head(rust_repo.find_branch("origin/beta", git2::BranchType::Remote)?.get().name().unwrap())?;
-        // debug!("Checking out bet");
-        // checkout_to_ref(rust_repo, "remotes/origin/stable")?;
-        if version.minor - (current_minor as u16) == 1 {
-            debug!("Checking out beta");
-            checkout_to_ref(rust_repo, "remotes/origin/beta")?;
-        }
-    } else {
-        checkout_to_ref(rust_repo, &version.to_string())?;
-    }
+    let version_str = version.to_string();
 
     debug!("Synching Clippy with Rust@{version}");
 
-    let head_oid = rust_repo.refname_to_id("HEAD")?;
-    let head_commit = rust_repo.find_commit(head_oid)?;
+    // if version.exists_in_stable() {
+    // let pr_reference =
+    //     checkout_to_ref(rust_repo, &version_str).expect("checkouts should always be to commits");
+    // dbg!(&pr_reference);
+    pause();
+    // } else {
+    // panic!();
+    // }
 
     debug!("Creating branch");
-    let sync_branch = rust_repo.branch("sync-from-clippy", &head_commit, true)?;
+    // let sync_branch = rust_repo.branch(
+    //     "sync-from-clippy",
+    //     &pr_reference
+    //         .as_tag()
+    //         .unwrap()
+    //         .target()
+    //         .unwrap()
+    //         .as_commit()
+    //         .unwrap(),
+    //     true,
+    // )?;
 
-    trace!("Checkout tree");
+    trace!("Checkout into sync branch");
 
-    rust_repo.checkout_tree(head_commit.as_object(), None)?;
-    trace!("Set head to sync branch");
-    rust_repo.set_head(sync_branch.get().name().unwrap())?;
+    // checkout_to_ref(rust_repo, "sync-from-clippy");
+    // rust_repo.checkout_tree(head_commit.as_object(), None)?;
+    // trace!("Set head to sync branch");
+    // rust_repo.set_head(sync_branch.get().name().unwrap())?;
 
     debug!("Copying directory .clippy__ -> src/tools/clippy");
 
@@ -172,14 +211,11 @@ fn read_toolchain_version() -> Result<RustVersion> {
 
     let re = Regex::new(r"rustc (\d\.\d+\.\d)-nightly")?;
 
-    return Ok(RustVersion::new(
-        re.captures(s)
-            .unwrap()
-            .get(0)
-            .unwrap()
-            .as_str()
-            .to_version(),
-    ));
+    let cap = &re.captures(s).unwrap().get(0).unwrap().as_str();
+
+    let version_str = &cap[6..cap.len() - 8];
+
+    return Ok(RustVersion::new(version_str));
 }
 
 fn cleanup(rust_repo: &Repository, clippy_repo: &Repository, pr: usize) -> Result<()> {
@@ -242,7 +278,6 @@ fn build_rust() -> Result<Child, io::Error> {
     debug!("Building Rust");
     pause();
 
-    #[cfg(not(debug_assertions))]
     return Command::new("./x")
         .args(&[
             "build",
@@ -266,12 +301,30 @@ fn build_rust() -> Result<Child, io::Error> {
             "rust.incremental=false",
             "--set",
             "llvm.download-ci-llvm=true", // don't need to build LLVM in this case
+            "--set",
+            &format!(
+                "build.cargo={}",
+                Path::new(RUST_TREE_PATH)
+                    .join("build")
+                    .join("host")
+                    .join("stage1-tools-bin")
+                    .join("cargo")
+                    .to_string_lossy()
+            ),
+            "--set",
+            &format!(
+                "build.rustc={}",
+                Path::new(RUST_TREE_PATH)
+                    .join("build")
+                    .join("host")
+                    .join("stage1")
+                    .join("bin")
+                    .join("rustc")
+                    .to_string_lossy()
+            ),
         ])
         .current_dir(RUST_TREE_PATH)
         .spawn();
-
-    #[cfg(debug_assertions)]
-    return Command::new("ls").spawn();
 }
 
 fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {

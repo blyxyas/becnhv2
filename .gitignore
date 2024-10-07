@@ -1,3 +1,5 @@
 /target
 .*__
 .*__/
+rustc*
+*.tar.xz
