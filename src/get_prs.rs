@@ -1,8 +1,8 @@
 use std::{
     fs::{self, canonicalize, File},
-    io::{self, Read, Write},
+    io::{self, copy, Read, Write},
     path::Path,
-    process::{Child, Command},
+    process::{Child, Command, ExitStatus},
 };
 
 use anyhow::Result;
@@ -69,37 +69,47 @@ pub(crate) fn get_pr(number: usize, clippy_repo: &Repository, master: bool) -> R
     let mut buf: Vec<u8> = Vec::new();
 
     debug!("Decompressing archive");
-    Command::new("tar").arg("-xf").arg(download_path).status()?;
+    // Command::new("tar").arg("-xf").arg(download_path).status()?;
 
     pause();
 
     // Build Rustc and cargo
     debug!("Building rustc");
-    Command::new("./x.py").arg("build").arg("rustc").status()?;
-    debug!("Building cargo");
-    Command::new("./x.py").arg("build").arg("cargo").status()?;
+    Command::new("./x.py")
+        .args([
+            "build",
+            "rustc",
+            "--set",
+            "llvm.download-ci-llvm=true",
+            "--stage",
+            "2",
+        ])
+        .current_dir(RUST_TREE_PATH)
+        .status()?;
 
     // Replace Clippy with PR Clippy
-
     let clippy_upstream_path = Path::new(RUST_TREE_PATH)
         .join("src")
         .join("tools")
         .join("clippy");
 
-        if clippy_upstream_path.exists() {
-            fs::remove_dir_all(&clippy_upstream_path)?;
-        }
+    if clippy_upstream_path.exists() {
+        fs::remove_dir_all(&clippy_upstream_path)?;
+    }
 
-    fs::rename(CLIPPY_PATH, clippy_upstream_path)?;
+    copy_dir_all(CLIPPY_PATH, clippy_upstream_path)?;
 
     pause();
 
     debug!("Building Rust on sync-from-clippy");
 
-    let mut rust_child = build_rust()?;
+    let mut rust_child = build_rust().unwrap();
+    dbg!("1");
 
     debug!("Benchmarking artifact as PR-{number}");
-    bench_artifact(&mut rust_child, &format!("PR-{number}"))?;
+dbg!("1");
+
+    bench_artifact(&format!("PR-{number}"))?;
 
     // if master {
     //     debug!("");
@@ -274,60 +284,71 @@ fn cleanup(rust_repo: &Repository, clippy_repo: &Repository, pr: usize) -> Resul
     Ok(())
 }
 
-fn build_rust() -> Result<Child, io::Error> {
-    debug!("Building Rust");
+fn build_rust() -> Result<ExitStatus, std::io::Error> {
+    debug!("Building Clippy");
     pause();
 
-    return Command::new("./x")
+    let rustc_path= Path::new(RUST_TREE_PATH)
+    .join("build")
+    .join("host")
+    .join("stage2");
+dbg!("1");
+
+    let _ = fs::remove_dir_all(Path::new(".").join("stage2"));
+dbg!("1");
+fs::rename( rustc_path, Path::new(".").join("stage2"))?;
+dbg!("1");
+
+    Command::new("./x.py")
         .args(&[
             "build",
             "src/tools/clippy",
-            "--stage=1",
+            "--stage",
+            "2",
             "--set",
-            "rust.lto=thin",
-            "--set",
-            "build.extended=false",
-            "--set",
-            "rust.jemalloc=true",
-            "--set",
-            "rust.codegen-units=1",
-            "--set",
-            "rust.codegen-units-std=1",
-            "--set",
-            "rust.debug=false",
-            "--set",
-            "rust.optimize=true",
+            "build.build-stage=2",
             "--set",
             "rust.incremental=false",
             "--set",
-            "llvm.download-ci-llvm=true", // don't need to build LLVM in this case
+            "llvm.download-ci-llvm=true",
             "--set",
-            &format!(
-                "build.cargo={}",
-                Path::new(RUST_TREE_PATH)
-                    .join("build")
-                    .join("host")
-                    .join("stage1-tools-bin")
-                    .join("cargo")
-                    .to_string_lossy()
-            ),
-            "--set",
-            &format!(
-                "build.rustc={}",
-                Path::new(RUST_TREE_PATH)
-                    .join("build")
-                    .join("host")
-                    .join("stage1")
-                    .join("bin")
-                    .join("rustc")
-                    .to_string_lossy()
-            ),
+            "build.rustc=/home/meow/git/becnhv2/stage2/bin/rustc",
+            // "build",
+            // "src/tools/clippy",
+            // "--stage",
+            // "2",
+            // "--set",
+            // "build.build-stage=2",
+            // // "--set",
+            // // "rust.lto=thin",
+            // // "--set",
+            // // "build.extended=false",
+            // // "--set",
+            // // "rust.jemalloc=true",
+            // // "--set",
+            // // "rust.codegen-units=1",
+            // // "--set",
+            // // "rust.codegen-units-std=1",
+            // // "--set",
+            // // "rust.debug=false",
+            // // "--set",
+            // // "rust.optimize=true",
+            // "--set",
+            // "rust.incremental=false",
+            // "--set",
+            // "llvm.download-ci-llvm=true", // don't need to build LLVM in this case
+            // "--set",
+            // &format!(
+            //     "build.rustc=/home/meow/git/becnhv2/stage2/bin/rustc",
+            //     //canonicalize(Path::new("/home/meow/").join("stage2").join("bin").join("rustc"))?
+            //       //  .to_string_lossy()
+            // ),
         ])
         .current_dir(RUST_TREE_PATH)
-        .spawn();
+        .status()
 }
 
-fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
+fn bench_artifact(id: &str) -> Result<()> {
     debug!("Fetching from rustc-perf");
 
     let perf_repo = Repository::open(RUSTC_PERF_PATH)?;
@@ -336,6 +357,7 @@ fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
         .fetch(&["master"], None, None)?;
 
     debug!("Building the collector");
+    dbg!("2");
 
     Command::new("cargo")
         .args(["build", "--release"])
@@ -344,27 +366,32 @@ fn bench_artifact(rust_build_artifact: &mut Child, id: &str) -> Result<()> {
         .wait()?;
 
     debug!("Waiting for rust build to wait (this will take a gooooood while)");
-    rust_build_artifact.wait()?;
+    dbg!("2");
+    
+    // rust_build_artifact.wait()?;
 
     debug!("Starting benchmarks");
+    pause();
 
-    let build_path = Path::new(RUST_TREE_PATH)
-        .join("build")
-        .join("host")
-        .join("stage2")
-        .join("bin");
+    let rustc_canon = canonicalize(RUST_TREE_PATH)?.join("build").join("host");
 
     Command::new("./target/release/collector")
         .args([
             "bench_local",
-            &build_path.join("rustc").to_string_lossy(),
+            &Path::new(".")
+                .join("rustc")
+                .to_string_lossy(),
             "--profiles",
             "Clippy",
             "--clippy",
-            &build_path.join("cargo-clippy").to_string_lossy(),
+            &rustc_canon
+                .join("stage1-tools-bin")
+                .join("cargo-clippy")
+                .to_string_lossy(),
             "--id",
             id,
         ])
+        .current_dir(RUSTC_PERF_PATH)
         .spawn()?;
 
     Ok(())

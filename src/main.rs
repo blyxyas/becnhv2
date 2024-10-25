@@ -12,7 +12,7 @@ mod setup;
 
 const SETUP_COMPLETED_LOCK: &str = ".setup-completed__";
 const CLIPPY_PATH: &str = ".rust-clippy__";
-const RUST_TREE_PATH: &str = "rustc-nightly-src";
+const RUST_TREE_PATH: &str = "./rustc-nightly-src";
 const RUSTC_PERF_PATH: &str = ".rustc-perf__";
 
 #[derive(Parser, Debug)]
